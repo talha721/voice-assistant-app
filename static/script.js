@@ -1,105 +1,119 @@
-let savedpasttext = []; // Variable to store the message
-let savedpastresponse = []; // Variable to store the message
+document.addEventListener("DOMContentLoaded", () => {
+  const messagesContainer = document.getElementById("messages-container");
+  const messageForm = document.getElementById("message-form");
+  const messageInput = document.getElementById("message-input");
+  const micButton = document.getElementById("mic-button");
 
-// Section: get the Id of the talking container
-const messagesContainer = document.getElementById('messages-container');
-const messageForm = document.getElementById('message-form');
-const messageInput = document.getElementById('message-input');
-//
+  // Helper to append message bubbles
+  const addMessage = (message, role, imgSrc, audioUrl = null) => {
+    const messageElement = document.createElement("div");
+    messageElement.className = `message ${role} d-flex align-items-center my-2`;
 
-//Section: function to creat the dialogue window
-const addMessage = (message, role, imgSrc) => {
-  // creat elements in the dialogue window
-  const messageElement = document.createElement('div');
-  const textElement = document.createElement('p');
-  messageElement.className = `message ${role}`;
-  const imgElement = document.createElement('img');
-  imgElement.src = `${imgSrc}`;
-  // append the image and message to the message element
-  messageElement.appendChild(imgElement);
-  textElement.innerText = message;
-  messageElement.appendChild(textElement);
-  messagesContainer.appendChild(messageElement);
-  // creat the ending of the message
-  var clearDiv = document.createElement("div");
-  clearDiv.style.clear = "both";
-  messagesContainer.appendChild(clearDiv);
-};
-//
+    const imgElement = document.createElement("img");
+    imgElement.src = imgSrc;
+    imgElement.style.width = "35px";
+    imgElement.style.height = "35px";
+    imgElement.className = "mr-2 rounded-circle";
 
+    const textElement = document.createElement("p");
+    textElement.className = "mb-0 p-2 border rounded bg-light";
+    textElement.innerText = message;
 
-//Section: Calling the model
-const sendMessage = async (message) => {
-  // addMessage(message, 'user','user.jpeg');
-  addMessage(message, 'user','../static/user.jpeg');
-  // Loading animation
-  const loadingElement = document.createElement('div');
-  const loadingtextElement = document.createElement('p');
-  loadingElement.className = `loading-animation`;
-  loadingtextElement.className = `loading-text`;
-  loadingtextElement.innerText = 'Loading....Please wait';
-  messagesContainer.appendChild(loadingElement);
-  messagesContainer.appendChild(loadingtextElement);
+    messageElement.appendChild(imgElement);
+    messageElement.appendChild(textElement);
 
-  async function makePostRequest(msg) {
-    const url = 'www.example.com';  // Make a POST request to this url
-    const requestBody = {
-      prompt: msg
-    };
-  
-    try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(requestBody)
-      });
-  
-      const data = await response.text();
-      // Handle the response data here
-      console.log(data);
-      return data;
-    } catch (error) {
-      // Handle any errors that occurred during the request
-      console.error('Error:', error);
-      return error
+    // If response contains an audio URL, embed audio player & auto-play
+    if (audioUrl) {
+      const audioElement = document.createElement("audio");
+      audioElement.src = audioUrl;
+      audioElement.autoplay = true;
+      audioElement.controls = true;
+      audioElement.className = "ml-2";
+      messageElement.appendChild(audioElement);
     }
-  }
-  
-  var res = await makePostRequest(message);
-  
-  data = {"response": res};
-  
-  // Deleting the loading animation
-  const loadanimation = document.querySelector('.loading-animation');
-  const loadtxt = document.querySelector('.loading-text');
-  loadanimation.remove();
-  loadtxt.remove();
 
-  if (data.error) {
-    // Handle the error here
-    const errorMessage = JSON.stringify(data);
-    // addMessage(errorMessage, 'error','Error.png');
-    addMessage(errorMessage, 'error','../static/Error.png');
-  } else {
-    // Process the normal response here
-    const responseMessage = data['response'];
-    // addMessage(responseMessage, 'aibot','Bot_logo.png');
-    addMessage(responseMessage, 'aibot','../static/Bot_logo.png');
-  }
-  
-  //!!!!! code to  save the content in history
-  //
-};
-//
+    messagesContainer.appendChild(messageElement);
+    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+  };
 
-//Section: Button to submit to the model and get the response
-messageForm.addEventListener('submit', async (event) => {
-  event.preventDefault();
-  const message = messageInput.value.trim();
-  if (message !== '') {
-    messageInput.value = '';
-    await sendMessage(message);
+  // 1. Text Form Submission Handler
+  messageForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const text = messageInput.value.trim();
+    if (!text) return;
+
+    messageInput.value = "";
+    addMessage(text, "user", "/static/user.jpeg");
+
+    try {
+      const response = await fetch("/api/text-chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: text }),
+      });
+
+      const data = await response.json();
+
+      if (data.error) {
+        addMessage(data.error, "error", "/static/Error.png");
+      } else {
+        addMessage(data.response, "aibot", "/static/Bot_logo.png", data.audio_url);
+      }
+    } catch (err) {
+      addMessage("Failed to connect to backend server.", "error", "/static/Error.png");
+    }
+  });
+
+  // 2. Microphone Audio Recording Handler (Web Audio API)
+  let mediaRecorder;
+  let audioChunks = [];
+
+  if (micButton) {
+    micButton.addEventListener("click", async () => {
+      if (!mediaRecorder || mediaRecorder.state === "inactive") {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          mediaRecorder = new MediaRecorder(stream);
+          audioChunks = [];
+
+          mediaRecorder.ondataavailable = (event) => audioChunks.push(event.data);
+
+          mediaRecorder.onstop = async () => {
+            const audioBlob = new Blob(audioChunks, { type: "audio/wav" });
+            const formData = new FormData();
+            formData.append("audio", audioBlob, "mic_recording.wav");
+
+            addMessage("🎤 Processing voice input...", "user", "/static/user.jpeg");
+
+            try {
+              const response = await fetch("/api/speech-chat", {
+                method: "POST",
+                body: formData,
+              });
+              const data = await response.json();
+
+              if (data.error) {
+                addMessage(data.error, "error", "/static/Error.png");
+              } else {
+                addMessage(`"${data.user_text}"`, "user", "/static/user.jpeg");
+                addMessage(data.response, "aibot", "/static/Bot_logo.png", data.audio_url);
+              }
+            } catch (err) {
+              addMessage("Error processing voice file.", "error", "/static/Error.png");
+            }
+          };
+
+          mediaRecorder.start();
+          micButton.classList.replace("btn-danger", "btn-warning");
+          micButton.innerHTML = '<i class="fa fa-stop"></i> Listening...';
+        } catch (err) {
+          alert("Microphone access denied or not available.");
+        }
+      } else if (mediaRecorder.state === "recording") {
+        mediaRecorder.stop();
+        micButton.classList.replace("btn-warning", "btn-danger");
+        micButton.innerHTML = '<i class="fa fa-microphone"></i>';
+      }
+    });
   }
 });
