@@ -14,7 +14,7 @@ from transformers import (
 # =====================================================================
 # 1. SETUP STORAGE & CONFIGURATION
 # =====================================================================
-AUDIO_DIR = "assistant"
+AUDIO_DIR = "stt_assistant"
 os.makedirs(AUDIO_DIR, exist_ok=True)
 
 # Audio recording settings
